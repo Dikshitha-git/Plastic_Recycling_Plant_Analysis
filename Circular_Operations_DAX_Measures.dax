@@ -1,0 +1,120 @@
+﻿/* ============================================================================
+   CIRCULAR POLYMERS & RECYCLING | ENTERPRISE DAX MEASURE LIBRARY
+   Target Engine: Microsoft Power BI / Analysis Services (VertiPaq)
+   File Name: Circular_Operations_DAX_Measures.dax
+   ============================================================================ */
+
+/* --- 1. Procurement & Weighbridge --- */
+[total_net_intake_tonnes] = 
+VAR TotalPayableKg = 
+    SUMX (
+        'public weighbridge_intake',
+        VAR Contamination = 'public weighbridge_intake'[sample_contamination_pct]
+        VAR Netkg = 'public weighbridge_intake'[net_weight_kg]
+        RETURN
+            IF (
+                Contamination > 5.0,
+                Netkg * (1 - (Contamination - 5.0) / 100.0),
+                Netkg
+            )
+    )
+RETURN
+    DIVIDE ( TotalPayableKg, 1000.0 )
+
+[total_intake_gross_tonnes] = 
+DIVIDE ( SUM ( 'public weighbridge_intake'[net_weight_kg] ), 1000.0, 0 )
+
+[total_intake_material_cost] = 
+SUMX (
+    'public weighbridge_intake',
+    VAR Contamination = 'public weighbridge_intake'[sample_contamination_pct]
+    VAR Netkg = 'public weighbridge_intake'[net_weight_kg]
+    VAR PayableTonnes = 
+        IF (
+            Contamination > 5.0,
+            Netkg * (1 - (Contamination - 5.0) / 100.0),
+            Netkg
+        ) / 1000.0
+    RETURN
+        PayableTonnes * 'public weighbridge_intake'[price_per_tonne_eur]
+)
+
+/* --- 2. Wash Line Operations --- */
+[wash_line_recovery_yield_%] = 
+DIVIDE (
+    SUM ( 'public wash_batches'[clean_flake_output_kg] ),
+    SUM ( 'public wash_batches'[raw_input_kg] ),
+    0
+)
+
+[unaccounted_wash_loss] = 
+SUM ( 'public wash_batches'[raw_input_kg] ) 
+- SUM ( 'public wash_batches'[clean_flake_output_kg] ) 
+- SUM ( 'public wash_batches'[reject_waste_kg] )
+
+/* --- 3. Extrusion & Compounding --- */
+[Extruder Specific Energy Consumption] = 
+VAR TotalKWh = SUM ( 'public extrusion_compounding'[extruder_kwh] )
+VAR TotalTonnesProduced = DIVIDE ( SUM ( 'public extrusion_compounding'[pellet_yield_kg] ), 1000.0 )
+RETURN
+    DIVIDE ( TotalKWh, TotalTonnesProduced, 0 )
+
+[True_Recycled_PCR_Content%] = 
+VAR RecycledFlakeKg = SUM ( 'public extrusion_compounding'[flake_input_kg] )
+VAR TotalInputKg = 
+    SUM ( 'public extrusion_compounding'[flake_input_kg] ) 
+    + SUM ( 'public extrusion_compounding'[virgin_input_kg] ) 
+    + SUM ( 'public extrusion_compounding'[masterbatch_kg] )
+RETURN
+    DIVIDE ( RecycledFlakeKg, TotalInputKg, 0 )
+
+/* --- 4. Quality Assurance --- */
+[QA_Pass_Rate%] = 
+VAR PassCount = 
+    CALCULATE (
+        COUNTROWS ( 'public qa_lab_tests' ),
+        'public qa_lab_tests'[qa_status] = "PASSED"
+    )
+RETURN
+    DIVIDE ( PassCount, COUNTROWS ( 'public qa_lab_tests' ), 0 )
+
+[QA_Downgrade_Rate%] = 
+VAR DowngradeCount = 
+    CALCULATE (
+        COUNTROWS ( 'public qa_lab_tests' ),
+        'public qa_lab_tests'[qa_status] IN { "DOWNGRADE", "DOWNGRADED" }
+    )
+RETURN
+    DIVIDE ( DowngradeCount, COUNTROWS ( 'public qa_lab_tests' ), 0 )
+
+/* --- 5. Conversion & Scrap --- */
+[Bag_Conversion_Scrap_Rate%] = 
+DIVIDE (
+    SUM ( 'public bag_production'[scrap_kg] ),
+    SUM ( 'public bag_production'[pellet_consumed_kg] ),
+    0
+)
+
+/* --- 6. Commercial Realization & ESG --- */
+[Average_Realized_Price_per_Tonne] = 
+DIVIDE (
+    SUM ( 'public outbound_dispatch'[invoice_value_eur] ),
+    DIVIDE ( SUM ( 'public outbound_dispatch'[net_weight_kg] ), 1000.0 ),
+    0
+)
+
+[Total_Avoided_CO2e_Tonnes] = 
+VAR DispatchedTonnes = DIVIDE ( SUM ( 'public outbound_dispatch'[net_weight_kg] ), 1000.0 )
+VAR CarbonAvoidanceFactor = 1.86
+RETURN
+    DispatchedTonnes * CarbonAvoidanceFactor
+
+/* --- 7. Calculated Columns --- */
+qa_status = 
+LOOKUPVALUE (
+    'public qa_lab_tests'[qa_status],
+    'public qa_lab_tests'[extrusion_id],
+    'public extrusion_compounding'[extrusion_id]
+)
+
+Day_Label = FORMAT ( 'Dim_Date'[Date], "mmm dd" )

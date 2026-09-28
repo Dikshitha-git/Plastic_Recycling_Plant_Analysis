@@ -1,0 +1,184 @@
+CIRCULAR POLYMERS & RECYCLING | ENTERPRISE DAX MEASURE LIBRARY
+============================================================================
+
+
+============================================================================
+1. TABLE: public weighbridge_intake (Procurement & Intake)
+============================================================================
+
+/// Payable intake weight in metric tonnes after penalty deduction for contamination > 5.0%
+/// Format: #,##0.00 "t"
+[total_net_intake_tonnes] = 
+VAR TotalPayableKg = 
+    SUMX (
+        'public weighbridge_intake',
+        VAR Contamination = 'public weighbridge_intake'[sample_contamination_pct]
+        VAR Netkg = 'public weighbridge_intake'[net_weight_kg]
+        RETURN
+            IF (
+                Contamination > 5.0,
+                Netkg * (1 - (Contamination - 5.0) / 100.0),
+                Netkg
+            )
+    )
+RETURN
+    DIVIDE ( TotalPayableKg, 1000.0 )[cite: 6]
+
+
+/// Gross raw delivered weight before any contamination penalties
+/// Format: #,##0.00 "t"
+[total_intake_gross_tonnes] = 
+DIVIDE (
+    SUM ( 'public weighbridge_intake'[net_weight_kg] ),
+    1000.0,
+    0
+)
+
+
+/// Net payable material procurement spend based on deductible weight
+/// Format: Currency (€) / #,##0.00 €
+[total_intake_material_cost] = 
+SUMX (
+    'public weighbridge_intake',
+    VAR Contamination = 'public weighbridge_intake'[sample_contamination_pct]
+    VAR Netkg = 'public weighbridge_intake'[net_weight_kg]
+    VAR PayableTonnes = 
+        IF (
+            Contamination > 5.0,
+            Netkg * (1 - (Contamination - 5.0) / 100.0),
+            Netkg
+        ) / 1000.0
+    RETURN
+        PayableTonnes * 'public weighbridge_intake'[price_per_tonne_eur]
+)
+
+
+============================================================================
+2. TABLE: public wash_batches (Washing & Flake Recovery)
+============================================================================
+
+/// Mass balance recovery yield of clean flakes from raw baled input
+/// Format: 0.00%
+[wash_line_recovery_yield_%] = 
+DIVIDE (
+    SUM ( 'public wash_batches'[clean_flake_output_kg] ),
+    SUM ( 'public wash_batches'[raw_input_kg] ),
+    0
+)
+
+
+/// Unaccounted mass lost in wastewater filtration, drying, and sludge
+/// Format: #,##0.00 "kg"
+[unaccounted_wash_loss] = 
+SUM ( 'public wash_batches'[raw_input_kg] ) 
+- SUM ( 'public wash_batches'[clean_flake_output_kg] ) 
+- SUM ( 'public wash_batches'[reject_waste_kg] )
+
+
+============================================================================
+3. TABLE: public extrusion_compounding (Compounding & Energy)
+============================================================================
+
+/// Specific Energy Consumption: electricity intensity per metric tonne of pellet produced
+/// Format: #,##0 "kWh/t"
+[Extruder Specific Energy Consumption] = 
+VAR TotalKWh = SUM ( 'public extrusion_compounding'[extruder_kwh] )
+VAR TotalTonnesProduced = DIVIDE ( SUM ( 'public extrusion_compounding'[pellet_yield_kg] ), 1000.0 )
+RETURN
+    DIVIDE ( TotalKWh, TotalTonnesProduced, 0 )
+
+
+/// Purity proportion of post-consumer recycled polymer in compounded batches
+/// Format: 0.00%
+[True_Recycled_PCR_Content%] = 
+VAR RecycledFlakeKg = SUM ( 'public extrusion_compounding'[flake_input_kg] )
+VAR TotalInputKg = 
+    SUM ( 'public extrusion_compounding'[flake_input_kg] ) 
+    + SUM ( 'public extrusion_compounding'[virgin_input_kg] ) 
+    + SUM ( 'public extrusion_compounding'[masterbatch_kg] )
+RETURN
+    DIVIDE ( RecycledFlakeKg, TotalInputKg, 0 )
+
+
+============================================================================
+4. TABLE: public qa_lab_tests (Quality Assurance)
+============================================================================
+
+/// First-Pass Prime lot pass rate against tensile and melt-flow specifications
+/// Format: 0.00%
+[QA_Pass_Rate%] = 
+VAR PassCount = 
+    CALCULATE (
+        COUNTROWS ( 'public qa_lab_tests' ),
+        'public qa_lab_tests'[qa_status] = "PASSED"
+    )
+VAR TotalLots = COUNTROWS ( 'public qa_lab_tests' )
+RETURN
+    DIVIDE ( PassCount, TotalLots, 0 )
+
+
+/// Proportion of tested production lots diverted to discounted secondary tiers
+/// Format: 0.00%
+[QA_Downgrade_Rate%] = 
+VAR DowngradeCount = 
+    CALCULATE (
+        COUNTROWS ( 'public qa_lab_tests' ),
+        'public qa_lab_tests'[qa_status] IN { "DOWNGRADE", "DOWNGRADED" }
+    )
+VAR TotalLots = COUNTROWS ( 'public qa_lab_tests' )
+RETURN
+    DIVIDE ( DowngradeCount, TotalLots, 0 )
+
+============================================================================
+   5. TABLE: public bag_production (Conversion & Finishing)
+============================================================================
+
+/// Manufacturing scrap rate across blown film extrusion and automated bag-cutting
+/// Format: 0.00%
+[Bag_Conversion_Scrap_Rate%] = 
+VAR ScrapKg = SUM ( 'public bag_production'[scrap_kg] )
+VAR ConsumedKg = SUM ( 'public bag_production'[pellet_consumed_kg] )
+RETURN
+    DIVIDE ( ScrapKg, ConsumedKg, 0 )
+
+
+============================================================================
+6. TABLE: public outbound_dispatch (Commercial Realization & Decarbonization)
+============================================================================
+
+/// Average realized revenue per metric tonne across customer sales channels
+/// Format: #,##0.00 €
+[Average_Realized_Price_per_Tonne] = 
+VAR TotalRevenue = SUM ( 'public outbound_dispatch'[invoice_value_eur] )
+VAR TotalTonnes = DIVIDE ( SUM ( 'public outbound_dispatch'[net_weight_kg] ), 1000.0 )
+RETURN
+    DIVIDE ( TotalRevenue, TotalTonnes, 0 )
+
+
+/// Customer Scope 3 carbon avoidance achieved by displacing virgin fossil resins
+/// Factor: 1.86 tonnes CO2e avoided per tonne of circular pellet dispatched
+/// Format: #,##0.00 "t"
+[Total_Avoided_CO2e_Tonnes] = 
+VAR DispatchedTonnes = DIVIDE ( SUM ( 'public outbound_dispatch'[net_weight_kg] ), 1000.0 )
+VAR CarbonAvoidanceFactor = 1.86
+RETURN
+    DispatchedTonnes * CarbonAvoidanceFactor
+
+
+============================================================================
+7. CALCULATED COLUMNS (Cross-Filtering & Visual Sorting)
+============================================================================
+
+/// Table: public extrusion_compounding
+/// Enables bidirectional cross-filtering from QA testing into compounding yield
+qa_status = 
+LOOKUPVALUE (
+    'public qa_lab_tests'[qa_status],
+    'public qa_lab_tests'[extrusion_id],
+    'public extrusion_compounding'[extrusion_id]
+)
+
+
+/// Table: Dim_Date
+/// Formats clean, non-angled categorical day labels for production run charts
+Day_Label = FORMAT ( 'Dim_Date'[Date], "mmm dd" )

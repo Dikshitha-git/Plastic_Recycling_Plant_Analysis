@@ -1,4 +1,4 @@
-﻿# PolyCycle Intelligence | Closed-Loop Manufacturing & ESG Operations Cockpit
+﻿# Plastic Recycling | Manufacturing & ESG Operations Analysis
 
 An enterprise-grade business intelligence and data engineering solution built on **PostgreSQL**, **Power BI**, and **DAX**. This system models end-to-end operational telemetry, mass balance recovery, and decarbonization accounting for a closed-loop post-consumer plastic recycling and blown-film manufacturing facility.
 
